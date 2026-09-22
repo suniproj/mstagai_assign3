@@ -1,0 +1,9 @@
+langchain-core
+langchain-huggingface
+langgraph
+langgraph-checkpoint-sqlite
+pinecone
+sentence-transformers
+python-dotenv
+mcp
+pytest
