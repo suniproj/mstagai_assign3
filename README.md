@@ -2,194 +2,193 @@
 
 A three-agent meal-planning and shopping assistant demonstrating
 LangGraph state/routing, MCP tools, human-in-the-loop (HITL), SQLite
-checkpoints, LangSmith tracing/evaluation, and Streamlit.
+checkpoints, LangSmith tracing/evaluation, Pinecone recipe retrieval,
+and Streamlit.
 
-## Assignment statement
+## Project statement
 
 > My agent helps a meal-planning user create and shop for a
-> constraint-aware meal plan in a Streamlit application, replacing the
-> manual workflow of searching recipes, checking dietary restrictions
-> and nutrition, building a grocery list, and estimating cost. It
-> performs the workflow using three specialized agents and two MCP
-> capabilities, hands control to a human for recipe/plan and shopping
-> decisions or when evidence is incomplete, and is evaluated with
-> automated tests, golden validation cases, and LangSmith experiments.
+> constraint-aware meal plan, replacing the manual workflow of searching
+> recipes, checking dietary restrictions and nutrition, building a
+> grocery list, estimating cost, and revising choices. Three specialized
+> agents use reusable MCP capabilities, while human interrupts retain
+> control over preferences, settings, cost revisions, and uncertain
+> outcomes.
+
+## Core design principle
+
+**Every user-supplied constraint must have an explicit outcome:
+satisfied, unsatisfied, unverifiable, or requiring human review.**
+
+The application does not silently ignore constraints or present
+incomplete results as success.
+
+Examples: - impossible recipe constraints → `planning_failure`; - no
+valid replacement → `replacement_failure`; - known subtotal above a hard
+budget → `budget_failure`; - missing prices prevent budget verification
+→ `pricing_unknown`; - uncertain safety evidence → human review.
 
 ## High-level flow
 
 ``` text
 Requirements
-  ↓
+    ↓
 Agent 1 — Meal Planner
-  ↓  Recipe MCP / Pinecone
+    ↓ Recipe MCP / Pinecone
+Plan completeness check
+    ├─ incomplete → planning_failure → Modify Settings / Cancel
+    ↓
 Agent 2 — Nutrition & Safety
-  ├─ FAIL → Agent 1 revision
-  ├─ NEEDS_REVIEW → Human
-  ↓
+    ├─ FAIL → revision
+    ├─ NEEDS_REVIEW → human review
+    ↓
 Meal Review HITL
-  ├─ Replace recipe → Agent 1 → Agent 2 → review
-  ├─ Modify settings → regenerate → Agent 1 → Agent 2
-  ├─ Cancel → reset
-  ↓ Approve
+    ├─ Replace recipe → Agent 1 → Agent 2 → review
+    ├─ Modify Settings → regenerate
+    ├─ Cancel → reset
+    ↓ Approve
 Agent 3 — Shopping & Budget
-  ↓  Price MCP
-Shopping HITL
-  ├─ Find cheaper meal → Agent 1 → Agent 2 → Agent 3
-  ├─ Cancel → reset
-  ↓ Approve
+    ↓ Price MCP
+Budget/pricing decision
+    ├─ OVER_BUDGET → budget_failure → cheaper meal / modify / cancel
+    ├─ INCOMPLETE_PRICING → pricing_unknown → partial / modify / cancel
+    ↓
+Shopping Review HITL
+    ├─ Find Cheaper Meal → Agent 1 → Agent 2 → Agent 3 → reprice
+    ├─ Cancel → reset
+    ↓ Approve
 Final Summary → Done → History
 ```
 
-Source comments use `STEP` labels so code maps visibly to this flow.
+## Agent 1 --- Meal Planner
 
-## Agents
+Primary file: `src/agents/meal_planner.py`.
 
-### Agent 1 --- Meal Planner
+Responsibilities: - retrieve candidates through Recipe MCP/Pinecone; -
+map breakfast vs shared lunch/dinner dataset categories; - build the
+requested day/meal-slot plan; - avoid same-day duplicate recipes; -
+detect missing meal slots; - replace one recipe using free-text
+feedback; - receive cost-driven replacement requests.
 
-Files: `src/agents/meal_planner.py`, `src/mcp_clients/recipe_client.py`,
-`mcp_servers/recipe_server.py`.
+Free-text preferences are added to the semantic retrieval query. A
+tested request for `something more filling` changed retrieval from a
+salad to a curry. This is semantic embedding retrieval, not a formal
+satiety model.
 
-Uses the Assignment 2 Pinecone recipe corpus to retrieve candidates,
-build the plan, avoid same-day duplicate recipes, and replace a specific
-meal using free-text feedback. A tested request,
-`something more filling`, changed retrieval from a salad to a curry.
+## Agent 2 --- Nutrition & Safety
 
-### Agent 2 --- Nutrition & Safety
+Primary files: - `src/agents/nutrition_safety.py` -
+`src/tools/constraint_validator.py` -
+`src/tools/ingredient_knowledge.py`
 
-Files: `src/agents/nutrition_safety.py`,
-`src/tools/constraint_validator.py`,
-`src/tools/ingredient_knowledge.py`.
+Validates diet, meal type, minimum protein, exclusions, bounded semantic
+ingredient relationships, and uncertainty. Returns `PASS`, `FAIL`, or
+`NEEDS_REVIEW`.
 
-Validates diet, meal type, protein, exclusions, bounded semantic
-relationships (for example tofu → soy and portobello → mushroom), and
-ambiguity. Returns `PASS`, `FAIL`, or `NEEDS_REVIEW`.
+### Evaluation improvement
 
-Safety-critical ingredient relationships are supplied by a bounded tool
-rather than unconstrained LLM inference.
+Initial deterministic baseline:
 
-### Agent 3 --- Shopping & Budget
+``` text
+7/15 = 46.7%
+```
 
-Files: `src/agents/shopping_budget.py`, `src/tools/grocery_list.py`,
-`src/tools/budget.py`, `src/mcp_clients/price_client.py`,
-`mcp_servers/price_server.py`.
+After bounded ingredient relationships (e.g. tofu → soy, portobello →
+mushroom) and explicit ambiguity handling:
 
-Extracts grocery items, uses the Price MCP capability, separates priced
-from unavailable items, calculates a known subtotal, checks budget
-status, and supports cost-driven meal replacement.
+``` text
+15/15 = 100%
+```
 
-## MCP
+## Agent 3 --- Shopping & Budget
 
-Two MCP capabilities are exposed: - **Recipe MCP:** recipe retrieval
-backed by Pinecone. - **Price MCP:** synthetic grocery-price lookup from
+Primary files: - `src/agents/shopping_budget.py` -
+`src/tools/grocery_list.py` - `src/tools/budget.py` -
+`src/mcp_clients/price_client.py`
+
+Responsibilities: - build grocery list; - call Price MCP; - preserve
+unavailable prices; - calculate known subtotal; - enforce budget
+outcome; - support cost-driven meal replacement.
+
+### Budget semantics
+
+``` text
+$0          → any budget / NO_BUDGET
+$0.01–$2.99 → invalid input
+$3+         → hard budget constraint
+```
+
+Hard-budget outcomes:
+
+``` text
+WITHIN_BUDGET      → normal shopping review
+OVER_BUDGET        → budget_failure
+INCOMPLETE_PRICING → pricing_unknown
+```
+
+If known cost alone exceeds the budget, the constraint is already
+unsatisfied even if additional prices are missing. If known cost is
+within budget but prices are missing, the true total is unverifiable.
+
+## MCP capabilities
+
+### Recipe MCP
+
+Reusable recipe-search capability backed by the Assignment 2 Pinecone
+corpus.
+
+### Price MCP
+
+Reproducible synthetic grocery-price lookup backed by
 `data/test_prices.json`.
 
-The project uses MCP 2.x `MCPServer`. An initial `FastMCP`
-implementation failed under MCP 2.x and was migrated to the current API.
-
-Missing prices return structured `unavailable` results; the application
-never invents prices.
+The project uses MCP 2.x `MCPServer`; an earlier `FastMCP`
+implementation was migrated after the installed SDK reported the v2 API
+change.
 
 ## LangGraph and persistence
 
-`src/graph.py` owns conditional routing, loops, HITL interrupts, and
-shared `MealPlanState`.
+`src/graph.py` owns shared state, conditional routing, loops, HITL
+interrupts, and failure states.
 
-The first checkpoint implementation used `InMemorySaver`. It worked
-within one process but could not resume in a new process. The project
-was upgraded to `SqliteSaver` using `data/meal_plan_checkpoints.db`.
-Cross-process pause/resume was verified with the same `thread_id`.
+The initial `InMemorySaver` checkpoint worked only within one process.
+The final implementation uses `SqliteSaver` with
+`data/meal_plan_checkpoints.db`. Cross-process pause/resume using the
+same `thread_id` was verified.
 
 ## Streamlit UI
 
-`app/streamlit_app.py` uses: - left navigation: Meal Planner, Recipe
-Browser, Receipts & Bills placeholder; - center: active workflow; -
-right: completed Plan History.
+Layout: - **Left:** Meal Planner, Recipe Browser, Receipts & Bills
+placeholder. - **Center:** active workflow. - **Right:** completed Plan
+History.
 
-Meal Review supports per-recipe replacement, Modify Settings, Cancel,
-and Approve Meal Plan. Shopping Review shows priced and unavailable
-items and supports Find Cheaper Meal, Cancel, and Approve Shopping Plan.
-Final Summary shows nutrition, expandable full recipes, and a grocery
-bill.
+Planner modes are explicit: - **Configure:** editable defaults and
+Create Meal Plan. - **Active:** requirements shown as solid read-only
+values. - **Modify:** current settings restored/editable with Update
+Meal Plan.
 
-Completed history is runtime data in `data/plan_history.json`.
+Meal Review supports per-recipe Replace, Modify Settings, Cancel, and
+Approve Meal Plan. Shopping handles explicit budget/pricing outcomes and
+cost-driven replacement. Final Summary shows nutrition, expandable
+recipes, and grocery bill.
 
-## Project structure
+## Automated tests
 
-``` text
-app/streamlit_app.py
-data/challenge_recipes.json
-data/validation_golden.csv
-data/test_prices.json
-evals/validation_eval.py
-evals/langsmith_validation_eval.py
-mcp_servers/recipe_server.py
-mcp_servers/price_server.py
-src/agents/meal_planner.py
-src/agents/nutrition_safety.py
-src/agents/shopping_budget.py
-src/mcp_clients/recipe_client.py
-src/mcp_clients/price_client.py
-src/tools/constraint_validator.py
-src/tools/ingredient_knowledge.py
-src/tools/grocery_list.py
-src/tools/budget.py
-src/graph.py
-src/state.py
-tests/test_validation.py
-tests/test_shopping_budget.py
-tests/test_full_flow.py
-```
-
-## Setup
-
-``` bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-cp .env.example .env
-```
-
-Configure Pinecone plus:
-
-``` text
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=<your-key>
-LANGSMITH_PROJECT=meal-plan-agents-assignment3
-```
-
-Never commit `.env`.
-
-## Run
-
-``` bash
-python -m streamlit run app/streamlit_app.py
-```
-
-## Tests
+Run:
 
 ``` bash
 python -m pytest -q
 ```
 
-Verified milestone: **10 passed**.
+Final verified milestone:
 
-Tests cover validation, protein/exclusions, review behavior, budget
-calculations, incomplete pricing, multi-agent integration, meal-plan
-HITL, Agent 3 execution, and shopping-review HITL.
-
-## Agent 2 evaluation
-
-``` bash
-python -m evals.validation_eval
+``` text
+16 passed
 ```
 
-Deterministic-only baseline: **7/15 = 46.7%**.
-
-Misses included tofu/miso/edamame/tempeh → soy,
-shiitake/cremini/portobello → mushroom, and ambiguous dairy phrases.
-
-After bounded ingredient relationships and ambiguity handling: **15/15 =
-100%**.
+Coverage includes validation, protein/exclusions, explicit planning
+failure, replacement/budget outcomes, incomplete pricing, multi-agent
+integration, HITL, Agent 3, and shopping routing.
 
 ## LangSmith
 
@@ -202,64 +201,87 @@ agent1_retrieve
 → meal_plan_review
 ```
 
-Opening `meal_plan_review` showed it as **interrupted**, confirming the
-HITL pause.
+Opening `meal_plan_review` showed it as **interrupted**, confirming
+HITL.
 
-Run evaluation:
+Representative dataset evaluation:
+
+``` text
+agent2-nutrition-safety-eval
+5/5 status_match = 1
+100%
+```
+
+Cases cover semantic soy conflict, semantic mushroom conflict, explicit
+safe case, protein failure, and ambiguous evidence.
+
+## Final evidence
+
+  Evidence                                                                   Result
+  ------------------------------------- -------------------------------------------
+  pytest                                                              **16 passed**
+  Agent 2 deterministic baseline                                   **7/15 = 46.7%**
+  Agent 2 enhanced golden evaluation                               **15/15 = 100%**
+  LangSmith representative evaluation                                **5/5 = 100%**
+  LangSmith HITL trace                      `meal_plan_review` shown as interrupted
+  Persistence                                  SQLite cross-process resume verified
+  Unsatisfiable meal request                            explicit `planning_failure`
+  Over-budget request                     explicit `budget_failure` + revision loop
+  Hard budget with missing prices                        explicit `pricing_unknown`
+
+## Run
 
 ``` bash
+python -m pip install -r requirements.txt
+cp .env.example .env
+python -m pytest -q
+python -m streamlit run app/streamlit_app.py
+```
+
+LangSmith environment:
+
+``` text
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=<your-key>
+LANGSMITH_PROJECT=meal-plan-agents-assignment3
+```
+
+## Evaluation commands
+
+``` bash
+python -m evals.validation_eval
 python -m evals.langsmith_validation_eval
 ```
 
-Dataset: `agent2-nutrition-safety-eval`.
-
-Five representative cases cover semantic soy conflict, semantic mushroom
-conflict, explicit safe case, protein failure, and ambiguous evidence.
-Verified result: **5/5 `status_match = 1` (100%)**.
-
-## Important iterations / learnings
-
-1.  Deterministic Agent 2 baseline: 46.7%.
-2.  Bounded semantic ingredient knowledge + uncertainty: 100% on 15
-    golden cases.
-3.  `InMemorySaver` could not persist across process restarts.
-4.  SQLite checkpointing successfully resumed a thread in a second
-    process.
-5.  MCP v1 `FastMCP` code failed under installed MCP 2.x; migrated to
-    `MCPServer`.
-6.  Free-text replacement feedback successfully changed semantic
-    retrieval.
-7.  Price failures are explicit and excluded from the known subtotal.
-
 ## Known limitations
 
--   One meal slot = one primary recipe; multi-course meals are out of
-    scope.
--   Dataset category `lunch/dinner` is shared by lunch and dinner.
--   Grocery prices are synthetic test prices, not live store quotes.
--   Ingredient quantities are not normalized/consolidated.
--   Known subtotal can be incomplete.
--   Recipe-quality heuristics can still improve.
--   Receipts & Bills is reserved for future work.
--   Plan history is local runtime storage, not production multi-user
-    persistence.
+-   one primary recipe per meal slot;
+-   source corpus shares lunch/dinner category;
+-   synthetic rather than live grocery prices;
+-   ingredient quantities are not normalized/consolidated;
+-   incomplete prices can make a hard budget unverifiable;
+-   semantic preference retrieval is not a formal model of concepts such
+    as satiety;
+-   Receipts & Bills is reserved for future work;
+-   Plan History is local runtime storage.
 
 ## Demo checklist
 
-1.  Create a Vegan plan with constraints.
-2.  Show Agent 1 creation and Agent 2 validation.
+1.  Create a constrained Vegan plan.
+2.  Show Agent 1 + Agent 2.
 3.  Replace a recipe using `something more filling`.
-4.  Approve the meal plan.
-5.  Show Agent 3 priced and unavailable items.
-6.  Optionally request a cheaper meal.
-7.  Approve shopping and show final summary.
-8.  Show LangSmith trace with `meal_plan_review` interrupted.
-9.  Show LangSmith 5/5 evaluation.
+4.  Approve recipes.
+5.  Use a small budget to show explicit `budget_failure`.
+6.  Try Cheaper Meal and show Agent 1 → Agent 2 → Agent 3 repricing.
+7.  Show final nutrition/recipes/bill.
+8.  Briefly show a 100g protein request producing `planning_failure`.
+9.  Show LangSmith `meal_plan_review` interrupted trace.
+10. Show 5/5 LangSmith evaluation and 16 passing tests.
 
 ## Git hygiene
 
-Commit source, tests, eval scripts, challenge/golden data, synthetic
-price catalog, `.env.example`, and docs.
+Commit code, tests, eval scripts, challenge/golden data, synthetic price
+catalog, `.env.example`, and documentation.
 
 Do not commit `.env`, `.venv/`, `data/meal_plan_checkpoints.db`,
 `data/plan_history.json`, or cache directories.
