@@ -7,3 +7,5 @@ __pycache__/
 .claude/
 .pytest_cache/
 data/*.db
+data/plan_history.json
+

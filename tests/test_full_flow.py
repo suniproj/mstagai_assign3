@@ -11,10 +11,11 @@ def test_full_agent_flow_to_agent3():
 
     Agent 1
         -> Agent 2
-        -> HITL meal-plan approval
+        -> HITL meal-plan review
+        -> human approval
         -> Agent 3
         -> Price MCP
-        -> budget/pricing decision
+        -> shopping/budget review
     """
 
     # Use a unique thread so persisted SQLite checkpoints from earlier
@@ -40,8 +41,8 @@ def test_full_agent_flow_to_agent3():
         "budget": 75,
     }
 
-    # STEP 3-6 — Agent 1 builds the plan, Agent 2 validates it,
-    # then LangGraph pauses for human meal-plan approval.
+    # STEP 3-6 — Agent 1 builds the plan and Agent 2 validates it.
+    # LangGraph then pauses so the human can review each recipe.
     paused_result = meal_plan_graph.invoke(
         initial_state,
         config=config,
@@ -52,9 +53,10 @@ def test_full_agent_flow_to_agent3():
     )
 
     assert interrupts
+
     assert (
         interrupts[0].value["type"]
-        == "meal_plan_approval"
+        == "meal_plan_review"
     )
 
     assert (
@@ -62,8 +64,12 @@ def test_full_agent_flow_to_agent3():
         == "PASS"
     )
 
-    # STEP 6 — Simulate the human approving the meal plan.
-    agent3_result = meal_plan_graph.invoke(
+    assert len(
+        paused_result["draft_meal_plan"]
+    ) == 3
+
+    # STEP 6 — Simulate the human accepting all three recipes.
+    shopping_result = meal_plan_graph.invoke(
         Command(
             resume={
                 "action": "approve",
@@ -73,16 +79,16 @@ def test_full_agent_flow_to_agent3():
         config=config,
     )
 
-    # STEP 7-9 — Agent 3 should have built and priced a grocery list.
-    assert agent3_result.get(
+    # STEP 7-9 — Agent 3 should build and price the grocery list.
+    assert shopping_result.get(
         "grocery_list"
     )
 
-    assert agent3_result.get(
+    assert shopping_result.get(
         "priced_grocery_list"
     )
 
-    assert agent3_result.get(
+    assert shopping_result.get(
         "budget_status"
     ) in {
         "WITHIN_BUDGET",
@@ -91,35 +97,18 @@ def test_full_agent_flow_to_agent3():
         "NO_BUDGET",
     }
 
-    print()
-    print(
-        "Budget status:",
-        agent3_result.get(
-            "budget_status"
-        ),
-    )
-
-    print(
-        "Known subtotal:",
-        agent3_result.get(
-            "estimated_total"
-        ),
-    )
-
-    print(
-        "Pricing errors:",
-        len(
-            agent3_result.get(
-                "pricing_errors",
-                [],
-            )
-        ),
-    )
-
-    print(
-        "Next interrupt:",
-        agent3_result.get(
+    # STEP 10 — The graph should pause again for shopping review.
+    shopping_interrupts = (
+        shopping_result.get(
             "__interrupt__"
-        ),
+        )
     )
 
+    assert shopping_interrupts
+
+    assert (
+        shopping_interrupts[0].value[
+            "type"
+        ]
+        == "shopping_review"
+    )
