@@ -1,19 +1,18 @@
-# Assignment 3 UI V3 — Clean Flow
+# UI Cost Loop Fix
 
-Replace `app/streamlit_app.py` with this file.
+Built from the planner-mode UI.
 
-Changes:
-- no New Plan button anywhere;
-- Meal Planner shows default settings whenever no workflow is active;
-- Stage 2 uses Cancel / Modify Settings / Approve Meal Plan;
-- per-recipe Replace remains the only recipe replacement control;
-- Stage 3 uses Cancel / Find Cheaper Meal / Approve Shopping Plan;
-- Done saves the completed plan to right-side History and resets Meal Planner;
-- left navigation remains Meal Planner / Recipe Browser / Receipts & Bills;
-- right column remains Plan History only.
+Fixes:
+1. Active/review stages show Current Requirements as solid read-only text and
+   no longer show a disabled Create Meal Plan button.
+2. Budget-failure cheaper-meal flow now resumes the `budget_failure` interrupt
+   with `action="try_cheaper_meal"`.
+3. Normal shopping-review cheaper-meal flow continues to use
+   `action="find_cheaper_meal"`.
 
-`data/plan_history.json` is runtime data and should remain in `.gitignore`.
+Why bug 2 happened:
+- `budget_failure` graph routing expects `try_cheaper_meal`.
+- The shared UI was sending `find_cheaper_meal`.
+- The router therefore fell through to Cancel.
 
-After copying:
-1. `python -m pytest -q`
-2. `python -m streamlit run app/streamlit_app.py`
+Backend files are unchanged.

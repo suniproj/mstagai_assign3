@@ -15,10 +15,10 @@ def test_full_agent_flow_to_agent3():
         -> human approval
         -> Agent 3
         -> Price MCP
-        -> shopping/budget review
+        -> explicit budget/pricing outcome
     """
 
-    # Use a unique thread so persisted SQLite checkpoints from earlier
+    # Use a unique thread so persisted checkpoints from earlier
     # test runs cannot interfere with this test.
     thread_id = (
         f"test-full-flow-{uuid4()}"
@@ -42,7 +42,7 @@ def test_full_agent_flow_to_agent3():
     }
 
     # STEP 3-6 — Agent 1 builds the plan and Agent 2 validates it.
-    # LangGraph then pauses so the human can review each recipe.
+    # LangGraph then pauses for human meal-plan review.
     paused_result = meal_plan_graph.invoke(
         initial_state,
         config=config,
@@ -60,6 +60,11 @@ def test_full_agent_flow_to_agent3():
     )
 
     assert (
+        paused_result["plan_status"]
+        == "COMPLETE"
+    )
+
+    assert (
         paused_result["validation_status"]
         == "PASS"
     )
@@ -68,7 +73,7 @@ def test_full_agent_flow_to_agent3():
         paused_result["draft_meal_plan"]
     ) == 3
 
-    # STEP 6 — Simulate the human accepting all three recipes.
+    # STEP 6 — Simulate human approval.
     shopping_result = meal_plan_graph.invoke(
         Command(
             resume={
@@ -88,16 +93,18 @@ def test_full_agent_flow_to_agent3():
         "priced_grocery_list"
     )
 
-    assert shopping_result.get(
+    budget_status = shopping_result.get(
         "budget_status"
-    ) in {
+    )
+
+    assert budget_status in {
         "WITHIN_BUDGET",
         "OVER_BUDGET",
         "INCOMPLETE_PRICING",
         "NO_BUDGET",
     }
 
-    # STEP 10 — The graph should pause again for shopping review.
+    # Agent 3 must always return an explicit next state.
     shopping_interrupts = (
         shopping_result.get(
             "__interrupt__"
@@ -106,9 +113,37 @@ def test_full_agent_flow_to_agent3():
 
     assert shopping_interrupts
 
-    assert (
+    interrupt_type = (
         shopping_interrupts[0].value[
             "type"
         ]
-        == "shopping_review"
     )
+
+    # STEP 9-10 — Verify that the interrupt agrees with
+    # Agent 3's budget result.
+    if budget_status == "WITHIN_BUDGET":
+        assert (
+            interrupt_type
+            == "shopping_review"
+        )
+
+    elif budget_status == "NO_BUDGET":
+        assert (
+            interrupt_type
+            == "shopping_review"
+        )
+
+    elif budget_status == "OVER_BUDGET":
+        assert (
+            interrupt_type
+            == "budget_failure"
+        )
+
+    elif (
+        budget_status
+        == "INCOMPLETE_PRICING"
+    ):
+        assert (
+            interrupt_type
+            == "pricing_unknown"
+        )

@@ -21,6 +21,17 @@ def initialize_session():
         "replacement_target": None,
         "show_cost_replacement": False,
         "history_plan_id": None,
+        "planner_mode": "configure",
+        "plan_settings": {
+            "days": 1,
+            "diet": "Vegan",
+            "breakfast": True,
+            "lunch": True,
+            "dinner": True,
+            "excluded_text": "",
+            "min_protein": 0.0,
+            "budget": 0.0,
+        },
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -36,6 +47,17 @@ def reset_to_default_planner():
     st.session_state.show_cost_replacement = False
     st.session_state.history_plan_id = None
     st.session_state.page = "Meal Planner"
+    st.session_state.planner_mode = "configure"
+    st.session_state.plan_settings = {
+        "days": 1,
+        "diet": "Vegan",
+        "breakfast": True,
+        "lunch": True,
+        "dinner": True,
+        "excluded_text": "",
+        "min_protein": 0.0,
+        "budget": 0.0,
+    }
 
 def get_interrupt(result):
     interrupts = result.get("__interrupt__", [])
@@ -229,29 +251,67 @@ def show_pricing(result):
             "The agent did not invent missing prices."
         )
 
-def show_cost_replacement(meal_plan):
+def show_cost_replacement(meal_plan, resume_action="find_cheaper_meal"):
+    """
+    Let the human select one meal for a cost-driven replacement.
+
+    `shopping_review` expects `find_cheaper_meal`.
+    `budget_failure` expects `try_cheaper_meal`.
+    """
     meal_options = {
-        f"Day {meal['day']} — {meal['meal_slot'].title()} — {meal['recipe']['recipe_name']}": meal
+        (
+            f"Day {meal['day']} — "
+            f"{meal['meal_slot'].title()} — "
+            f"{meal['recipe']['recipe_name']}"
+        ): meal
         for meal in meal_plan
     }
-    selected_label = st.selectbox("Meal to replace", list(meal_options.keys()))
+
+    if not meal_options:
+        st.error(
+            "No meals are available for cost-based replacement."
+        )
+        return
+
+    selected_label = st.selectbox(
+        "Meal to replace",
+        list(meal_options.keys()),
+    )
+
     feedback = st.text_input(
         "Replacement request",
         value="cheaper alternative",
         key="cost_feedback",
     )
-    if st.button("Find Cheaper Option"):
+
+    cancel_column, replace_column = st.columns(2)
+
+    if cancel_column.button(
+        "Cancel Cheaper Meal",
+        key=f"cancel-cheaper-{resume_action}",
+    ):
+        st.session_state.show_cost_replacement = False
+        st.rerun()
+
+    if replace_column.button(
+        "Find Cheaper Option",
+        key=f"find-cheaper-{resume_action}",
+    ):
         meal = meal_options[selected_label]
+
         resume_graph({
-            "action": "find_cheaper_meal",
+            "action": resume_action,
             "revision_request": {
                 "day": meal["day"],
                 "meal_slot": meal["meal_slot"],
-                "rejected_recipe_id": meal["recipe"]["recipe_id"],
+                "rejected_recipe_id": (
+                    meal["recipe"]["recipe_id"]
+                ),
                 "reason": "cost",
                 "feedback": feedback,
             },
         })
+
 
 def show_final_summary(result, history_mode=False):
     st.success("Meal plan and shopping plan approved.")
@@ -324,6 +384,144 @@ def show_history_plan(plan_id):
         st.session_state.history_plan_id = None
         st.rerun()
 
+
+def show_budget_failure(result, current_interrupt):
+    """Show an explicit failure when the hard budget is exceeded."""
+    st.error("Budget could not be satisfied")
+
+    budget = current_interrupt.get("budget")
+    subtotal = current_interrupt.get("estimated_total")
+    over_by = current_interrupt.get("over_by")
+
+    st.write(current_interrupt.get("message"))
+
+    metric_columns = st.columns(3)
+    metric_columns[0].metric("Budget", f"${budget:.2f}")
+    metric_columns[1].metric("Known subtotal", f"${subtotal:.2f}")
+    metric_columns[2].metric("Over budget by", f"${over_by:.2f}")
+
+    st.info(
+        "The current plan cannot be approved against this budget. "
+        "Try a cheaper meal, modify the budget/settings, or cancel."
+    )
+
+    cancel_column, modify_column, cheaper_column = st.columns(3)
+
+    if cancel_column.button("Cancel", key="budget-failure-cancel"):
+        reset_to_default_planner()
+        st.rerun()
+
+    if modify_column.button("Modify Budget / Settings", key="budget-failure-modify"):
+        st.session_state.planner_mode = "modify"
+        st.rerun()
+
+    if cheaper_column.button("Try Cheaper Meal", key="budget-failure-cheaper"):
+        st.session_state.show_cost_replacement = True
+        st.rerun()
+
+    if st.session_state.show_cost_replacement:
+        show_cost_replacement(
+            result.get("draft_meal_plan", []),
+            resume_action="try_cheaper_meal",
+        )
+
+
+def show_pricing_unknown(result, current_interrupt):
+    """Show that a hard budget cannot be verified because prices are missing."""
+    st.warning("Budget cannot be verified")
+
+    st.write(current_interrupt.get("message"))
+    show_pricing(result)
+
+    st.info(
+        "You can continue with the partial estimate, "
+        "modify the budget/settings, or cancel."
+    )
+
+    cancel_column, modify_column, continue_column = st.columns(3)
+
+    if cancel_column.button("Cancel", key="pricing-unknown-cancel"):
+        reset_to_default_planner()
+        st.rerun()
+
+    if modify_column.button("Modify Budget / Settings", key="pricing-unknown-modify"):
+        st.session_state.planner_mode = "modify"
+        st.rerun()
+
+    if continue_column.button("Continue With Partial Estimate", key="pricing-unknown-continue"):
+        resume_graph({"action": "continue_partial"})
+
+
+def show_planning_failure(result, current_interrupt):
+    """Show an explicit outcome when requested constraints cannot be satisfied."""
+    st.error("Could not complete the requested meal plan")
+
+    message = (
+        current_interrupt.get("message")
+        or result.get("planning_message")
+        or "The requested constraints could not be satisfied."
+    )
+    st.write(message)
+
+    missing_slots = (
+        current_interrupt.get("missing_meal_slots")
+        or result.get("missing_meal_slots", [])
+    )
+
+    if missing_slots:
+        st.markdown("#### Missing meal slots")
+        for missing in missing_slots:
+            st.write(
+                f"- Day {missing['day']} — "
+                f"{missing['meal_slot'].title()}"
+            )
+
+    st.info(
+        "Try lowering the minimum protein, removing an exclusion, "
+        "changing the diet, or requesting fewer meal slots."
+    )
+
+    cancel_column, modify_column = st.columns(2)
+
+    if cancel_column.button("Cancel", key="planning-failure-cancel"):
+        reset_to_default_planner()
+        st.rerun()
+
+    if modify_column.button("Modify Settings", key="planning-failure-modify"):
+        st.session_state.planner_mode = "modify"
+        st.rerun()
+
+
+def show_replacement_failure(result, current_interrupt):
+    """Show an explicit outcome when no valid replacement recipe is found."""
+    st.error("Could not find a suitable replacement")
+
+    message = (
+        current_interrupt.get("message")
+        or result.get("planning_message")
+        or "No alternative recipe matched the current requirements."
+    )
+    st.write(message)
+
+    st.info(
+        "Keep the current recipe, modify the plan settings, "
+        "or cancel the current plan."
+    )
+
+    keep_column, modify_column, cancel_column = st.columns(3)
+
+    if keep_column.button("Keep Current", key="replacement-failure-keep"):
+        resume_graph({"action": "keep_current"})
+
+    if modify_column.button("Modify Settings", key="replacement-failure-modify"):
+        st.session_state.planner_mode = "modify"
+        st.rerun()
+
+    if cancel_column.button("Cancel", key="replacement-failure-cancel"):
+        reset_to_default_planner()
+        st.rerun()
+
+
 def show_recipe_browser():
     st.title("Recipe Browser")
     st.caption("Search the same recipe knowledge base used by Agent 1.")
@@ -358,94 +556,336 @@ def show_recipe_browser():
                 st.text(recipe.get("recipe_text", ""))
 
 def show_meal_planner():
+    """Render configure, active-review, and modify modes explicitly."""
     st.title("Meal Plan & Shop Agent")
-    st.caption("Agent 1 plans · Agent 2 validates · Agent 3 shops and checks budget")
-
-    with st.form("requirements"):
-        days = st.number_input("Number of days", min_value=1, max_value=7, value=1)
-        diet = st.selectbox("Diet", ["Vegan", "Vegetarian"])
-        st.write("Meals")
-        breakfast = st.checkbox("Breakfast", value=True)
-        lunch = st.checkbox("Lunch", value=True)
-        dinner = st.checkbox("Dinner", value=True)
-        excluded_text = st.text_input(
-            "Excluded ingredients",
-            placeholder="soy, mushroom",
-        )
-        min_protein = st.number_input(
-            "Minimum protein per meal (g)",
-            min_value=0.0,
-            value=0.0,
-        )
-        budget = st.number_input("Budget ($)", min_value=0.0, value=75.0)
-        submitted = st.form_submit_button("Create Meal Plan")
-
-    if submitted:
-        meal_slots = []
-        if breakfast:
-            meal_slots.append("breakfast")
-        if lunch:
-            meal_slots.append("lunch")
-        if dinner:
-            meal_slots.append("dinner")
-
-        excluded = [
-            item.strip()
-            for item in excluded_text.split(",")
-            if item.strip()
-        ]
-        reset_to_default_planner()
-        initial_state = {
-            "user_request": "Create a meal plan",
-            "days": int(days),
-            "meal_slots": meal_slots,
-            "diet": diet,
-            "excluded_ingredients": excluded,
-            "min_protein_per_meal": min_protein if min_protein > 0 else None,
-            "budget": budget if budget > 0 else None,
-        }
-        with st.spinner("Agents are building and validating your plan..."):
-            st.session_state.graph_result = meal_plan_graph.invoke(
-                initial_state,
-                config=graph_config(),
-            )
+    st.caption(
+        "Agent 1 plans · Agent 2 validates · "
+        "Agent 3 shops and checks budget"
+    )
 
     result = st.session_state.graph_result
+    mode = st.session_state.planner_mode
+    settings = st.session_state.plan_settings
+
+    # CONFIGURE / MODIFY — editable settings.
+    if mode in {"configure", "modify"}:
+        is_modify = mode == "modify"
+
+        st.subheader(
+            "Modify Requirements"
+            if is_modify
+            else "Your Requirements"
+        )
+
+        with st.form(
+            "modify_requirements"
+            if is_modify
+            else "create_requirements"
+        ):
+            days = st.number_input(
+                "Number of days",
+                min_value=1,
+                max_value=7,
+                value=int(settings["days"]),
+            )
+
+            diets = ["Vegan", "Vegetarian"]
+            diet = st.selectbox(
+                "Diet",
+                diets,
+                index=diets.index(settings["diet"]),
+            )
+
+            st.write("Meals")
+            breakfast = st.checkbox(
+                "Breakfast",
+                value=settings["breakfast"],
+            )
+            lunch = st.checkbox(
+                "Lunch",
+                value=settings["lunch"],
+            )
+            dinner = st.checkbox(
+                "Dinner",
+                value=settings["dinner"],
+            )
+
+            excluded_text = st.text_input(
+                "Excluded ingredients",
+                value=settings["excluded_text"],
+                placeholder="soy, mushroom, tomatoes",
+            )
+
+            min_protein = st.number_input(
+                "Minimum protein per meal (g)",
+                min_value=0.0,
+                value=float(settings["min_protein"]),
+            )
+
+            budget = st.number_input(
+                "Budget ($)",
+                min_value=0.0,
+                value=float(settings["budget"]),
+            )
+
+            st.caption(
+                "Enter $0 for any budget. "
+                "When specified, the minimum budget is $3."
+            )
+
+            if is_modify:
+                cancel_changes, update_plan = st.columns(2)
+                cancel_clicked = cancel_changes.form_submit_button(
+                    "Cancel Changes"
+                )
+                submit_clicked = update_plan.form_submit_button(
+                    "Update Meal Plan"
+                )
+            else:
+                cancel_clicked = False
+                submit_clicked = st.form_submit_button(
+                    "Create Meal Plan"
+                )
+
+        if cancel_clicked:
+            st.session_state.planner_mode = "active"
+            st.rerun()
+
+        if submit_clicked:
+            if 0 < budget < 3:
+                st.error(
+                    "Enter $0 for any budget, "
+                    "or enter a budget of at least $3."
+                )
+                return
+
+            meal_slots = []
+            if breakfast:
+                meal_slots.append("breakfast")
+            if lunch:
+                meal_slots.append("lunch")
+            if dinner:
+                meal_slots.append("dinner")
+
+            if not meal_slots:
+                st.error(
+                    "Select at least one meal: "
+                    "Breakfast, Lunch, or Dinner."
+                )
+                return
+
+            updated_settings = {
+                "days": int(days),
+                "diet": diet,
+                "breakfast": breakfast,
+                "lunch": lunch,
+                "dinner": dinner,
+                "excluded_text": excluded_text,
+                "min_protein": float(min_protein),
+                "budget": float(budget),
+            }
+
+            st.session_state.plan_settings = updated_settings
+            st.session_state.thread_id = (
+                f"meal-plan-{uuid.uuid4()}"
+            )
+            st.session_state.replacement_target = None
+            st.session_state.show_cost_replacement = False
+            st.session_state.history_plan_id = None
+            st.session_state.planner_mode = "active"
+
+            excluded = [
+                item.strip()
+                for item in excluded_text.split(",")
+                if item.strip()
+            ]
+
+            initial_state = {
+                "user_request": "Create a meal plan",
+                "days": int(days),
+                "meal_slots": meal_slots,
+                "diet": diet,
+                "excluded_ingredients": excluded,
+                "min_protein_per_meal": (
+                    min_protein
+                    if min_protein > 0
+                    else None
+                ),
+                "budget": (
+                    None
+                    if budget == 0
+                    else budget
+                ),
+            }
+
+            with st.spinner(
+                "Agents are building and validating your plan..."
+            ):
+                st.session_state.graph_result = (
+                    meal_plan_graph.invoke(
+                        initial_state,
+                        config=graph_config(),
+                    )
+                )
+
+            # Force a fresh render in ACTIVE mode. This guarantees the
+            # Create button/settings cannot remain enabled after execution.
+            st.rerun()
+
+        return
+
+    # ACTIVE — settings are visible but read-only.
+    st.subheader("Current Requirements")
+
+    requirements_columns = st.columns(2)
+    requirements_columns[0].write(
+        f"**Days:** {settings['days']}"
+    )
+    requirements_columns[0].write(
+        f"**Diet:** {settings['diet']}"
+    )
+
+    selected_meals = [
+        label.title()
+        for label in ["breakfast", "lunch", "dinner"]
+        if settings[label]
+    ]
+    requirements_columns[0].write(
+        f"**Meals:** {', '.join(selected_meals)}"
+    )
+
+    exclusions = settings["excluded_text"].strip()
+    requirements_columns[1].write(
+        f"**Excluded:** {exclusions or 'None'}"
+    )
+    requirements_columns[1].write(
+        "**Minimum protein:** "
+        f"{settings['min_protein']:.0f}g"
+    )
+    requirements_columns[1].write(
+        "**Budget:** "
+        + (
+            "Any"
+            if settings["budget"] == 0
+            else f"${settings['budget']:.2f}"
+        )
+    )
+
     if not result:
+        st.error(
+            "The workflow is active but no graph result is available. "
+            "Cancel and create the plan again."
+        )
+        if st.button("Cancel", key="active-no-result-cancel"):
+            reset_to_default_planner()
+            st.rerun()
         return
 
     show_agent_progress(result)
-    meal_plan = result.get("draft_meal_plan", [])
-    interrupt_value = get_interrupt(result)
-    interrupt_type = interrupt_value.get("type") if interrupt_value else None
 
-    if interrupt_type == "meal_plan_review":
-        show_meal_plan(meal_plan, allow_replacement=True)
+    meal_plan = result.get("draft_meal_plan", [])
+    current_interrupt = get_interrupt(result)
+    interrupt_type = (
+        current_interrupt.get("type")
+        if current_interrupt
+        else None
+    )
+
+    if interrupt_type == "budget_failure":
+        show_budget_failure(
+            result,
+            current_interrupt,
+        )
+
+    elif interrupt_type == "pricing_unknown":
+        show_pricing_unknown(
+            result,
+            current_interrupt,
+        )
+
+    elif interrupt_type == "planning_failure":
+        show_planning_failure(
+            result,
+            current_interrupt,
+        )
+
+    elif interrupt_type == "replacement_failure":
+        show_replacement_failure(
+            result,
+            current_interrupt,
+        )
+
+    elif interrupt_type == "meal_plan_review":
+        show_meal_plan(
+            meal_plan,
+            allow_replacement=True,
+        )
         show_replacement_form()
         st.divider()
-        approve_column, decline_column = st.columns(2)
-        if approve_column.button("Approve Meal Plan →"):
-            resume_graph({"action": "approve", "feedback": None})
-        if decline_column.button("Decline Plan"):
-            resume_graph({"action": "decline", "feedback": None})
+
+        cancel_column, modify_column, approve_column = (
+            st.columns(3)
+        )
+
+        if cancel_column.button(
+            "Cancel",
+            key="meal-review-cancel",
+        ):
+            reset_to_default_planner()
+            st.rerun()
+
+        if modify_column.button(
+            "Modify Settings",
+            key="meal-review-modify",
+        ):
+            st.session_state.planner_mode = "modify"
+            st.rerun()
+
+        if approve_column.button(
+            "Approve Meal Plan →",
+            key="meal-review-approve",
+        ):
+            resume_graph({
+                "action": "approve",
+                "feedback": None,
+            })
 
     elif interrupt_type == "shopping_review":
         show_meal_plan(meal_plan)
         show_pricing(result)
         st.divider()
 
-        if st.button("Find Cheaper Meal"):
+        if st.session_state.show_cost_replacement:
+            show_cost_replacement(
+                meal_plan,
+                resume_action="find_cheaper_meal",
+            )
+
+        cancel_column, cheaper_column, approve_column = (
+            st.columns(3)
+        )
+
+        if cancel_column.button(
+            "Cancel",
+            key="shopping-review-cancel",
+        ):
+            reset_to_default_planner()
+            st.rerun()
+
+        if cheaper_column.button(
+            "Find Cheaper Meal",
+            key="shopping-review-cheaper",
+        ):
             st.session_state.show_cost_replacement = True
             st.rerun()
 
-        if st.session_state.show_cost_replacement:
-            show_cost_replacement(meal_plan)
-
-        approve_column, decline_column = st.columns(2)
-        if approve_column.button("Approve Available Estimate"):
-            resume_graph({"action": "approve"})
-        if decline_column.button("Decline"):
-            resume_graph({"action": "decline"})
+        if approve_column.button(
+            "Approve Shopping Plan →",
+            key="shopping-review-approve",
+        ):
+            resume_graph({
+                "action": "approve",
+            })
 
     elif result.get("final_approval") == "approve":
         show_final_summary(result)

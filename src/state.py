@@ -1,6 +1,10 @@
 from typing import TypedDict
 
+
 class MealPlanState(TypedDict, total=False):
+    """Shared state passed between agents and LangGraph nodes."""
+
+    # STEP 1-2 — User requirements.
     user_request: str
     days: int
     meal_slots: list[str]
@@ -10,10 +14,13 @@ class MealPlanState(TypedDict, total=False):
     min_protein_per_meal: float | None
     budget: float | None
 
-    # STEP 3 — Agent 1.
+    # STEP 3 — Agent 1 planning and explicit planning outcome.
     candidate_recipes: list[dict]
     draft_meal_plan: list[dict]
     planning_attempts: int
+    plan_status: str | None
+    planning_message: str | None
+    missing_meal_slots: list[dict]
     revision_request: dict | None
     rejected_recipe_ids: list[str]
 
