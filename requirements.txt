@@ -5,5 +5,7 @@ langgraph-checkpoint-sqlite
 pinecone
 sentence-transformers
 python-dotenv
-mcp
+mcp>=2,<3
 pytest
+streamlit
+

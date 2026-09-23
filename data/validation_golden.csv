@@ -1,0 +1,16 @@
+case_id,recipe_id,constraint_type,constraint,expected_status,reason
+val-001,challenge-001,exclude_ingredient,soy,FAIL,Tofu is soy-derived.
+val-002,challenge-003,exclude_ingredient,soy,FAIL,Miso tests semantic soy validation.
+val-003,challenge-004,exclude_ingredient,soy,FAIL,Edamame is soy.
+val-004,challenge-005,exclude_ingredient,soy,FAIL,Tempeh tests semantic soy validation.
+val-005,challenge-012,exclude_ingredient,soy,FAIL,Explicit soy sauce.
+val-006,challenge-006,exclude_ingredient,soy,PASS,Explicit Soy-Free label and no conflicting evidence.
+val-007,challenge-002,exclude_ingredient,mushroom,FAIL,Shiitake and cremini are mushrooms.
+val-008,challenge-007,exclude_ingredient,mushroom,FAIL,Portobello is a mushroom.
+val-009,challenge-009,diet,Vegan,PASS,Explicit Vegan label.
+val-010,challenge-011,diet,Vegan,FAIL,Contains chicken and no Vegan label.
+val-011,challenge-010,min_protein,15,FAIL,11.8g protein per serving.
+val-012,challenge-015,min_protein,15,PASS,20.3g protein per serving.
+val-013,challenge-013,meal_type,lunch/dinner,FAIL,Recipe is breakfast.
+val-014,challenge-008,exclude_ingredient,dairy,NEEDS_REVIEW,Creamy dressing is ambiguous.
+val-015,challenge-014,exclude_ingredient,dairy,NEEDS_REVIEW,Cream-style sauce is ambiguous.

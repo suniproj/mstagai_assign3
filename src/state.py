@@ -6,7 +6,7 @@ class MealPlanState(TypedDict, total=False):
     # STEP 1-2 — Requirements and missing-information HITL.
     user_request: str
     days: int
-    meal_types: list[str]
+    meal_slots: list[str]
     diet: str
     excluded_ingredients: list[str]
     allergens: list[str]

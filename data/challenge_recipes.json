@@ -1,0 +1,263 @@
+[
+  {
+    "recipe_id": "challenge-001",
+    "recipe_name": "Quick Tofu Bowl",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegan"
+    ],
+    "protein_per_serving": 18.5,
+    "ingredients": [
+      "tofu",
+      "brown rice",
+      "broccoli",
+      "sesame oil"
+    ]
+  },
+  {
+    "recipe_id": "challenge-002",
+    "recipe_name": "Wild Forest Pasta",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegetarian"
+    ],
+    "protein_per_serving": 17.2,
+    "ingredients": [
+      "pasta",
+      "shiitake",
+      "cremini",
+      "parmesan"
+    ]
+  },
+  {
+    "recipe_id": "challenge-003",
+    "recipe_name": "Miso Vegetable Soup",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegan"
+    ],
+    "protein_per_serving": 9.4,
+    "ingredients": [
+      "miso paste",
+      "bok choy",
+      "scallions",
+      "vegetable broth"
+    ]
+  },
+  {
+    "recipe_id": "challenge-004",
+    "recipe_name": "Edamame Quinoa Salad",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegan"
+    ],
+    "protein_per_serving": 16.8,
+    "ingredients": [
+      "edamame",
+      "quinoa",
+      "cucumber",
+      "sesame seeds",
+      "lime"
+    ]
+  },
+  {
+    "recipe_id": "challenge-005",
+    "recipe_name": "Tempeh Lettuce Wraps",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegan"
+    ],
+    "protein_per_serving": 21.1,
+    "ingredients": [
+      "tempeh",
+      "lettuce",
+      "carrot",
+      "rice vinegar"
+    ]
+  },
+  {
+    "recipe_id": "challenge-006",
+    "recipe_name": "Lentil Tomato Stew",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegan",
+      "Soy-Free"
+    ],
+    "protein_per_serving": 18.2,
+    "ingredients": [
+      "lentils",
+      "tomatoes",
+      "spinach",
+      "onion",
+      "garlic"
+    ]
+  },
+  {
+    "recipe_id": "challenge-007",
+    "recipe_name": "Portobello Rice Bowl",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegan"
+    ],
+    "protein_per_serving": 12.6,
+    "ingredients": [
+      "portobello",
+      "brown rice",
+      "spinach",
+      "tahini"
+    ]
+  },
+  {
+    "recipe_id": "challenge-008",
+    "recipe_name": "Vegetable Broth Risotto",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegetarian"
+    ],
+    "protein_per_serving": 13.5,
+    "ingredients": [
+      "arborio rice",
+      "vegetable broth",
+      "peas",
+      "creamy dressing"
+    ]
+  },
+  {
+    "recipe_id": "challenge-009",
+    "recipe_name": "Garden Bean Chili",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegan",
+      "Soy-Free"
+    ],
+    "protein_per_serving": 19.0,
+    "ingredients": [
+      "black beans",
+      "kidney beans",
+      "tomatoes",
+      "corn",
+      "chili powder"
+    ]
+  },
+  {
+    "recipe_id": "challenge-010",
+    "recipe_name": "Roasted Vegetable Couscous",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegan"
+    ],
+    "protein_per_serving": 11.8,
+    "ingredients": [
+      "couscous",
+      "zucchini",
+      "bell pepper",
+      "chickpeas"
+    ]
+  },
+  {
+    "recipe_id": "challenge-011",
+    "recipe_name": "Herbed Chicken Grain Bowl",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [],
+    "protein_per_serving": 31.4,
+    "ingredients": [
+      "chicken breast",
+      "quinoa",
+      "spinach",
+      "lemon"
+    ]
+  },
+  {
+    "recipe_id": "challenge-012",
+    "recipe_name": "Vegetable Noodle Bowl",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegan"
+    ],
+    "protein_per_serving": 15.7,
+    "ingredients": [
+      "rice noodles",
+      "carrot",
+      "bok choy",
+      "soy sauce"
+    ]
+  },
+  {
+    "recipe_id": "challenge-013",
+    "recipe_name": "Spinach Chickpea Breakfast Hash",
+    "meal_type": [
+      "breakfast"
+    ],
+    "health_labels": [
+      "Vegan",
+      "Soy-Free"
+    ],
+    "protein_per_serving": 16.1,
+    "ingredients": [
+      "chickpeas",
+      "spinach",
+      "potato",
+      "paprika"
+    ]
+  },
+  {
+    "recipe_id": "challenge-014",
+    "recipe_name": "Creamy Herb Pasta",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegetarian"
+    ],
+    "protein_per_serving": 16.4,
+    "ingredients": [
+      "pasta",
+      "herbs",
+      "cream-style sauce",
+      "peas"
+    ]
+  },
+  {
+    "recipe_id": "challenge-015",
+    "recipe_name": "Red Lentil Curry",
+    "meal_type": [
+      "lunch/dinner"
+    ],
+    "health_labels": [
+      "Vegan",
+      "Soy-Free"
+    ],
+    "protein_per_serving": 20.3,
+    "ingredients": [
+      "red lentils",
+      "tomatoes",
+      "coconut milk",
+      "spinach",
+      "curry spices"
+    ]
+  }
+]
